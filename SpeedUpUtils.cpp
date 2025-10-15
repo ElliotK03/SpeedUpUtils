@@ -18,7 +18,7 @@ using namespace adsk::fusion;
 #define XI_EXPORT __attribute__((visibility("default")))
 #endif
 
-Ptr<ExtrudeFeature> extrudeSemicircle(Ptr<Component>, Ptr<Sketch>);
+Ptr<ExtrudeFeature> extrudeCreatedSketch(Ptr<Component>, Ptr<Sketch>);
 bool checkReturn(Ptr<Base>);
 
 Ptr<Application> app;
@@ -27,8 +27,8 @@ Ptr<ToolbarPanelList> toolbarPanelList;
 Ptr<ToolbarControlList> toolbarControlList_var;
 
 // Parameters with placeholder values
-double radius = 2.5;      // 0.1 cm = 1 mm (API uses centimeters)
-double sweepAngle = M_PI; // 180 degrees in radians (π radians)
+double sweepAngle = M_PI_2; // 180 degrees in radians (π radians)
+double radius = 2.5;        // 0.1 cm = 1 mm (API uses centimeters)
 double thickness = 1.0;
 
 extern "C" XI_EXPORT bool run(const char *context)
@@ -73,27 +73,37 @@ extern "C" XI_EXPORT bool run(const char *context)
     Ptr<ConstructionPlane> xz = rootComp->xZConstructionPlane();
     if (!xz)
         return false;
+
     Ptr<Sketch> sketch = sketches->add(xz);
     if (!sketch)
         return false;
+
     Ptr<SketchCurves> sketchCurves = sketch->sketchCurves();
     if (!sketchCurves)
         return false;
+
     Ptr<SketchLines> sketchLines = sketchCurves->sketchLines();
     if (!sketchLines)
         return false;
+
     Ptr<Point3D> startPoint = Point3D::create(radius, 0, 0);
     if (!startPoint)
         return false;
-    Ptr<Point3D> endPoint = Point3D::create(-radius, 0, 0);
-    if (!endPoint)
-        return false;
-    sketchLines->addByTwoPoints(startPoint, endPoint);
 
     // Create center point at origin
     Ptr<Point3D> centerPoint = Point3D::create(0, 0, 0);
     if (!centerPoint)
         return false;
+    
+    // y = radius cm, because the y-axis is projected onto z-axis on the sketch (which is based on the xz-plane)
+    Ptr<Point3D> endPoint = Point3D::create(0, radius, 0);
+    if (!endPoint)
+        return false;
+
+    // Line 1
+    sketchLines->addByTwoPoints(startPoint, centerPoint);
+    // Line 2
+    sketchLines->addByTwoPoints(endPoint, centerPoint);
 
     Ptr<SketchArcs> sketchArcs = sketchCurves->sketchArcs();
     if (!sketchArcs)
@@ -103,7 +113,7 @@ extern "C" XI_EXPORT bool run(const char *context)
     if (!arc)
         return false;
 
-    Ptr<ExtrudeFeature> extrusion = extrudeSemicircle(rootComp, sketch);
+    Ptr<ExtrudeFeature> extrusion = extrudeCreatedSketch(rootComp, sketch);
     if (!extrusion)
         return false;
 
@@ -150,7 +160,7 @@ bool checkReturn(Ptr<Base> returnObj)
         return false;
 }
 
-Ptr<ExtrudeFeature> extrudeSemicircle(Ptr<Component> component, Ptr<Sketch> sketch)
+Ptr<ExtrudeFeature> extrudeCreatedSketch(Ptr<Component> component, Ptr<Sketch> sketch)
 {
     Ptr<ExtrudeFeatures> extrudes = component->features()->extrudeFeatures();
     if (!checkReturn(extrudes))
@@ -158,7 +168,7 @@ Ptr<ExtrudeFeature> extrudeSemicircle(Ptr<Component> component, Ptr<Sketch> sket
 
     if (sketch->profiles()->count() == 0)
         return nullptr;
-    
+
     Ptr<Profile> prof = sketch->profiles()->item(0);
     if (!checkReturn(prof))
         return nullptr;
