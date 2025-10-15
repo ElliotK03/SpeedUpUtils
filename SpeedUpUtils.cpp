@@ -117,12 +117,17 @@ extern "C" XI_EXPORT bool run(const char *context)
     if (!extrusion)
         return false;
 
-    // Since the sketch of the semicircle is created with its straight edge parallel with one of the origin axes,
-    // the extrusion is orthogonal to the axis. To create a cyllinder, select the plane orthogonal to both.
-    // In this case, the XY-plane
+    // Since the sketch of the quarter circle is created with its straight edges both parallel with two of the origin axes, namely
+    // the x-axis and the z-axis.
+    // The extrusion is orthogonal to these 2 axes. To create a cyllinder, select the planes normal to both of the axes.
+    // In this case, the XY-plane and the YZ-plane.
 
     Ptr<ConstructionPlane> xy = rootComp->xYConstructionPlane();
     if (!xy)
+        return false;
+    
+    Ptr<ConstructionPlane> yz = rootComp->yZConstructionPlane();
+    if (!yz)
         return false;
 
     // Select the newly extruded body for mirror operation
@@ -139,6 +144,25 @@ extern "C" XI_EXPORT bool run(const char *context)
 
     // Create mirror feature
     Ptr<MirrorFeature> mirrorFeature = rootComp->features()->mirrorFeatures()->add(mirrorInput);
+    if (!checkReturn(mirrorFeature))
+        return false;
+
+    // Update bodies collection to include the mirrored result
+    bodies->clear();
+    for (int i = 0; i < mirrorFeature->bodies()->count(); i++)
+    {
+        bodies->add(mirrorFeature->bodies()->item(i));
+    }
+
+    mirrorInput = rootComp->features()->mirrorFeatures()->createInput(bodies, yz);
+    if (!checkReturn(mirrorInput))
+        return false;
+
+    // Set mirror operation to combine bodies
+    mirrorInput->isCombine(true);
+
+    // Create mirror feature
+    Ptr<MirrorFeature> mirrorFeatureNew = rootComp->features()->mirrorFeatures()->add(mirrorInput);
     if (!checkReturn(mirrorFeature))
         return false;
 
@@ -191,3 +215,4 @@ Ptr<ExtrudeFeature> extrudeCreatedSketch(Ptr<Component> component, Ptr<Sketch> s
 
     return extrude;
 }
+
