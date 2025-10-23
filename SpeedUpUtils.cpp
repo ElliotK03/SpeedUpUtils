@@ -1,7 +1,7 @@
-
 #include <Core/CoreAll.h>
 #include <Fusion/FusionAll.h>
-#include <Cam/CamAll.h>
+// #include <Cam/CamAll.h>
+#include <map>
 #include <string>
 
 #define _USE_MATH_DEFINES
@@ -35,6 +35,10 @@ Ptr<UserInterface> ui;
 Ptr<Design> design;
 Ptr<UnitsManager> unitsMgr;
 Ptr<ConstructionPlane> xy, yz, xz;
+
+std::map<char, Ptr<ConstructionPlane>*> axisToPlane = {
+    {'X', &yz}, {'Y', &xz}, {'Z', &xy}, {'0', nullptr}
+};
 
 // Global command input declarations
 Ptr<StringValueCommandInput> cylinderThickness;
@@ -81,35 +85,16 @@ class CylinderCommandInputChangedHandler : public adsk::core::InputChangedEventH
             radius = unitsMgr->evaluateExpression(cylinderRadius->value());
         } else if (changedInput->id() == "selectedAxis") 
         {   
-            mirrorPlanes->clear();
-            mirrorPlanes->add(xy);
-            mirrorPlanes->add(yz);
-            mirrorPlanes->add(xz);
+            mirrorPlanes -> clear();
+            mirrorPlanes -> add(xy);
+            mirrorPlanes -> add(yz);
+            mirrorPlanes -> add(xz);
 
-            switch (selectedAxis->selectedItem()->name()[0]) {
-                case 'X':
-                {
-                    sketchPlane = &yz;
-                    break;
-                }
-                case 'Y':
-                {
-                    sketchPlane = &xz;
-                    break;
-                }
-                case 'Z':
-                {
-                    sketchPlane = &xy;
-                    break;
-                }
-                default:
-                {
-                    sketchPlane = nullptr;
-                    break;
-                }
-            }
-            if (sketchPlane != nullptr)
+            auto it = axisToPlane.find(selectedAxis->selectedItem()->name()[0]);
+            if (it != axisToPlane.end()) {
+                sketchPlane = it->second;
                 mirrorPlanes->removeByItem(*sketchPlane);
+            }
         }
 
         return;
