@@ -26,17 +26,20 @@ bool checkReturn(Ptr<Base>);
 bool execute(Ptr<Component>);
 
 Ptr<ObjectCollection> bodies;
-
+Ptr<ConstructionPlane> * sketchPlane;
+Ptr<ObjectCollection> mirrorPlanes;
 
 Ptr<Component> rootComp;
 Ptr<Application> app;
 Ptr<UserInterface> ui;
 Ptr<Design> design;
 Ptr<UnitsManager> unitsMgr;
+Ptr<ConstructionPlane> xy, yz, xz;
 
 // Global command input declarations
 Ptr<StringValueCommandInput> cylinderThickness;
 Ptr<StringValueCommandInput> cylinderRadius;
+Ptr<DropDownCommandInput> selectedAxis;
 Ptr<TextBoxCommandInput> _errMessage;
 
 
@@ -52,9 +55,6 @@ class CylinderCommandExecuteEventHandler : public adsk::core::CommandEventHandle
   public:
     void notify(const Ptr<CommandEventArgs>& eventArgs) override
     {
-        rootComp = design->rootComponent();
-        if (!checkReturn(rootComp))
-            return;
         bool executeSuccessful = execute(rootComp);
         if ((executeSuccessful)) {
             eventArgs->executeFailed(false);
@@ -79,6 +79,37 @@ class CylinderCommandInputChangedHandler : public adsk::core::InputChangedEventH
         } else if (changedInput->id() == "cylinderRadius")
         {
             radius = unitsMgr->evaluateExpression(cylinderRadius->value());
+        } else if (changedInput->id() == "selectedAxis") 
+        {   
+            mirrorPlanes->clear();
+            mirrorPlanes->add(xy);
+            mirrorPlanes->add(yz);
+            mirrorPlanes->add(xz);
+
+            switch (selectedAxis->selectedItem()->name()[0]) {
+                case 'X':
+                {
+                    sketchPlane = &yz;
+                    break;
+                }
+                case 'Y':
+                {
+                    sketchPlane = &xz;
+                    break;
+                }
+                case 'Z':
+                {
+                    sketchPlane = &xy;
+                    break;
+                }
+                default:
+                {
+                    sketchPlane = nullptr;
+                    break;
+                }
+            }
+            if (sketchPlane != nullptr)
+                mirrorPlanes->removeByItem(*sketchPlane);
         }
 
         return;
@@ -140,6 +171,16 @@ public:
 
         cylinderThickness = inputs->addStringValueInput("cylinderThickness", "Cylinder Thickness", "10 mm");
         cylinderRadius = inputs->addStringValueInput("cylinderRadius", "Cylinder Radius", "25 mm");
+        selectedAxis = inputs->addDropDownCommandInput("selectedAxis", "Cylinder Axis", adsk::core::TextListDropDownStyle);
+        
+        selectedAxis ->listItems() ->add("X", true);
+        selectedAxis ->listItems() ->add("Y", false);
+        selectedAxis ->listItems() ->add("Z", false);
+
+        mirrorPlanes->add(xy);
+        mirrorPlanes->add(xz);
+        sketchPlane = &yz;
+
         _errMessage = inputs->addTextBoxCommandInput("errMessage", "", "", 2, true);
         _errMessage->isReadOnly(true);
 
@@ -182,6 +223,10 @@ extern "C" XI_EXPORT bool run(const char *context)
     if (!bodies)
         return false;
 
+    mirrorPlanes = ObjectCollection::create();
+    if (!bodies)
+        return false;
+
     app = Application::get();
     if (!app)
         return false;
@@ -207,6 +252,24 @@ extern "C" XI_EXPORT bool run(const char *context)
         return false;
 
     unitsMgr = design->unitsManager();
+    if (!checkReturn(unitsMgr))
+        return false;
+
+    rootComp = design->rootComponent();
+    if (!checkReturn(rootComp))
+        return false;
+
+    xy = rootComp->xYConstructionPlane();
+    if (!xy)
+        return false;
+    
+    yz = rootComp->yZConstructionPlane();
+    if (!yz)
+        return false;
+
+    xz = rootComp->xZConstructionPlane();
+    if (!xz)
+        return false;
 
     std::string idString = "DoubleMirrorTool";
 
@@ -283,11 +346,8 @@ Ptr<Sketch> createSketch(Ptr<Component> rootComp) {
     Ptr<Sketches> sketches = rootComp->sketches();
     if (!sketches)
         return nullptr;
-    Ptr<ConstructionPlane> xz = rootComp->xZConstructionPlane();
-    if (!xz)
-        return nullptr;
 
-    Ptr<Sketch> sketch = sketches->add(xz);
+    Ptr<Sketch> sketch = sketches->add(*sketchPlane);
     if (!sketch)
         return nullptr;
 
@@ -396,6 +456,10 @@ Ptr<MirrorFeature> doubleMirror(Ptr<ObjectCollection> bodies, Ptr<ConstructionPl
 }
 
 bool execute(Ptr<Component> rootComp) {
+
+    if (mirrorPlanes->count() != 2)
+        return false;
+
     // Create sketch
     Ptr<Sketch> sketch = createSketch(rootComp);
     if (!checkReturn(sketch))
@@ -405,25 +469,15 @@ bool execute(Ptr<Component> rootComp) {
     if (!extrusion)
         return false;
 
-    // Since the sketch of the quarter circle is created with its straight edges both parallel with two of the origin axes, namely
-    // the x-axis and the z-axis.
-    // The extrusion is orthogonal to these 2 axes. To create a cyllinder, select the planes normal to both of the axes.
-    // In this case, the XY-plane and the YZ-plane.
-
-    Ptr<ConstructionPlane> xy = rootComp->xYConstructionPlane();
-    if (!xy)
-        return false;
-    
-    Ptr<ConstructionPlane> yz = rootComp->yZConstructionPlane();
-    if (!yz)
-        return false;
-
     // Select the newly extruded body for mirror operation
     bodies->add(extrusion->bodies()->item(0));
     if (!checkReturn(bodies))
         return false;
 
-    Ptr<MirrorFeature> newMirrorFeature = doubleMirror(bodies, xy, yz);
+    Ptr<ConstructionPlane>  plane1 = mirrorPlanes->item(0), 
+                            plane2 = mirrorPlanes->item(1);
+
+    Ptr<MirrorFeature> newMirrorFeature = doubleMirror(bodies, plane1, plane2);
 
     return true;
 }
