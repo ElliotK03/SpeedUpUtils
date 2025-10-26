@@ -1,8 +1,21 @@
+#include "Core/Application/ValueInput.h"
+#include "Core/Geometry/Line3D.h"
+#include "Core/Geometry/Vector3D.h"
+#include "Core/UserInterface/Selection.h"
+#include "Fusion/BRep/BRepEdge.h"
+#include "Fusion/BRep/BRepFace.h"
+#include "Fusion/Construction/ConstructionAxis.h"
+#include "Fusion/Construction/ConstructionPlane.h"
+#include "Fusion/Construction/ConstructionPlaneInput.h"
+#include "Fusion/Construction/ConstructionPlanes.h"
+#include "Fusion/FusionTypeDefs.h"
+#include "Fusion/Sketch/SketchLine.h"
 #include <Core/CoreAll.h>
 #include <Fusion/FusionAll.h>
 // #include <Cam/CamAll.h>
 #include <map>
 #include <string>
+// #include <sstream>
 
 #define _USE_MATH_DEFINES
 #include <math.h>
@@ -25,6 +38,19 @@ bool checkUnits(std::string, Ptr<UnitsManager>);
 bool checkReturn(Ptr<Base>);
 bool execute(Ptr<Component>);
 
+bool validateMirrorPlaneOrLineSelections();
+bool areLinesOrthogonal(Ptr<Line3D> line1,Ptr<Line3D> line2);
+bool areLinesOrthogonal(Ptr<Vector3D> vec1,Ptr<Vector3D> vec2);
+bool processPlaneOrLineInputs(Ptr<ConstructionPlane> & plane1, Ptr<ConstructionPlane> & plane2);
+
+std::string selectionClassTypes[5] = {
+    BRepEdge::classType(),
+    ConstructionAxis::classType(),
+    SketchLine::classType(),
+    BRepFace::classType(),
+    ConstructionPlane::classType()
+};
+
 Ptr<ObjectCollection> bodies;
 Ptr<ConstructionPlane> * sketchPlane;
 Ptr<ObjectCollection> mirrorPlanes;
@@ -37,13 +63,15 @@ Ptr<UnitsManager> unitsMgr;
 Ptr<ConstructionPlane> xy, yz, xz;
 
 std::map<char, Ptr<ConstructionPlane>*> axisToPlane = {
-    {'X', &yz}, {'Y', &xz}, {'Z', &xy}, {'0', nullptr}
+    {'X', &yz}, {'Y', &xz}, {'Z', &xy}
 };
 
 // Global command input declarations
 Ptr<StringValueCommandInput> cylinderThickness;
 Ptr<StringValueCommandInput> cylinderRadius;
 Ptr<DropDownCommandInput> selectedAxis;
+Ptr<SelectionCommandInput> bodySelection;
+Ptr<SelectionCommandInput> axisOrPlaneSelection;
 Ptr<TextBoxCommandInput> _errMessage;
 
 
@@ -54,7 +82,7 @@ double thickness = 1.0;
 
 // Event handlers
 
-class CylinderCommandExecuteEventHandler : public adsk::core::CommandEventHandler
+class DoubleMirrorCommandExecuteEventHandler : public adsk::core::CommandEventHandler
 {
   public:
     void notify(const Ptr<CommandEventArgs>& eventArgs) override
@@ -64,79 +92,90 @@ class CylinderCommandExecuteEventHandler : public adsk::core::CommandEventHandle
             eventArgs->executeFailed(false);
         } else { 
             eventArgs->executeFailed(true);
-            eventArgs->executeFailedMessage("Unexpected failure while constructing the cylinder.");
+            eventArgs->executeFailedMessage("Unexpected failure while performing double mirror.");
         }
     }
-} _cylinderCommandExecute;
+} _doubleMirrorCommandExecute;
 
-class CylinderCommandInputChangedHandler : public adsk::core::InputChangedEventHandler
+class DoubleMirrorCommandInputChangedHandler : public adsk::core::InputChangedEventHandler
 {
   public:
     void notify(const Ptr<InputChangedEventArgs>& eventArgs) override
     {
         Ptr<CommandInput> changedInput = eventArgs->input();
 
-        if (changedInput->id() == "cylinderThickness") 
-        {
-            thickness = unitsMgr->evaluateExpression(cylinderThickness->value());
-            // ui->messageBox(std::to_string(thickness));
-        } else if (changedInput->id() == "cylinderRadius")
-        {
-            radius = unitsMgr->evaluateExpression(cylinderRadius->value());
-        } else if (changedInput->id() == "selectedAxis") 
-        {   
-            mirrorPlanes -> clear();
-            mirrorPlanes -> add(xy);
-            mirrorPlanes -> add(yz);
-            mirrorPlanes -> add(xz);
+        // if (changedInput->id() == "cylinderThickness") 
+        // {
+        //     thickness = unitsMgr->evaluateExpression(cylinderThickness->value());
+        //     // ui->messageBox(std::to_string(thickness));
+        // } else if (changedInput->id() == "cylinderRadius")
+        // {
+        //     radius = unitsMgr->evaluateExpression(cylinderRadius->value());
+        // } else if (changedInput->id() == "selectedAxis") 
+        // {   
+        //     mirrorPlanes -> clear();
+        //     mirrorPlanes -> add(xy);
+        //     mirrorPlanes -> add(yz);
+        //     mirrorPlanes -> add(xz);
 
-            auto it = axisToPlane.find(selectedAxis->selectedItem()->name()[0]);
-            if (it != axisToPlane.end()) {
-                sketchPlane = it->second;
-                mirrorPlanes->removeByItem(*sketchPlane);
-            }
-        }
+        //     auto it = axisToPlane.find(selectedAxis->selectedItem()->name()[0]);
+        //     if (it != axisToPlane.end()) {
+        //         sketchPlane = it->second;
+        //         mirrorPlanes->removeByItem(*sketchPlane);
+        //     }
+        // }
+        // Verify planes/axes selection
+        // validateMirrorPlaneSelections();
+
+        // To-do? :
+        // Verify intersections (if any) between the body and the planes/lines occur at boundaries only
+        // And verify resultant body of double mirror operation will not interfere with other existing bodies
 
         return;
     }
-} _cylinderCommandInputChanged;
+} _doubleMirrorCommandInputChanged;
 
-class CylinderCommandValidateInputsEventHandler : public adsk::core::ValidateInputsEventHandler
+class DoubleMirrorCommandValidateInputsEventHandler : public adsk::core::ValidateInputsEventHandler
 {
   public:
   void notify(const Ptr<ValidateInputsEventArgs>& eventArgs) override
   {
     _errMessage->text("");
 
-    std::string defUnits = unitsMgr->defaultLengthUnits();
-    if (!checkUnits(cylinderThickness->value(), unitsMgr)||!checkUnits(cylinderRadius->value(), unitsMgr)) 
-    {
-        eventArgs->areInputsValid(false);
-        _errMessage->text("Invalid units.");
-        return;
-    }
+    // std::string defUnits = unitsMgr->defaultLengthUnits();
+    // if (!checkUnits(cylinderThickness->value(), unitsMgr)||!checkUnits(cylinderRadius->value(), unitsMgr)) 
+    // {
+    //     eventArgs->areInputsValid(false);
+    //     _errMessage->text("Invalid units.");
+    //     return;
+    // }
     
-    if (radius <= 0 || thickness <= 0) 
-    {
+    // if (radius <= 0 || thickness <= 0) 
+    // {
+    //     eventArgs->areInputsValid(false);
+    //     _errMessage->text("Quantities must be positive.");
+    //     return;
+    // }
+
+    if (!validateMirrorPlaneOrLineSelections()) {
         eventArgs->areInputsValid(false);
-        _errMessage->text("Quantities must be positive.");
         return;
     }
 
     return;
   }
-} _cylinderCommandValidateInputs;
+} _doubleMirrorCommandValidateInputs;
 
-class CylinderCommandDestroyEventHandler : public adsk::core::CommandEventHandler
+class DoubleMirrorCommandDestroyEventHandler : public adsk::core::CommandEventHandler
 {
 public:
     void notify(const Ptr<CommandEventArgs>& eventArgs) override 
     {
         adsk::terminate();
     }
-} _cylinderCommandDestroy;
+} _doubleMirrorCommandDestroy;
 
-class CylinderCommandCreatedEventHandler : public adsk::core::CommandCreatedEventHandler
+class DoubleMirrorCommandCreatedEventHandler : public adsk::core::CommandCreatedEventHandler
 {
 public:
     void notify(const Ptr<CommandCreatedEventArgs>& eventArgs) override
@@ -154,40 +193,56 @@ public:
         if (!checkReturn(inputs))
             return;
 
-        cylinderThickness = inputs->addStringValueInput("cylinderThickness", "Cylinder Thickness", "10 mm");
-        cylinderRadius = inputs->addStringValueInput("cylinderRadius", "Cylinder Radius", "25 mm");
-        selectedAxis = inputs->addDropDownCommandInput("selectedAxis", "Cylinder Axis", adsk::core::TextListDropDownStyle);
+        // cylinderThickness = inputs->addStringValueInput("cylinderThickness", "Cylinder Thickness", "10 mm");
+        // cylinderRadius = inputs->addStringValueInput("cylinderRadius", "Cylinder Radius", "25 mm");
+        // selectedAxis = inputs->addDropDownCommandInput("selectedAxis", "Cylinder Axis", adsk::core::TextListDropDownStyle);
         
-        selectedAxis ->listItems() ->add("X", true);
-        selectedAxis ->listItems() ->add("Y", false);
-        selectedAxis ->listItems() ->add("Z", false);
+        // selectedAxis ->listItems() ->add("X", true);
+        // selectedAxis ->listItems() ->add("Y", false);
+        // selectedAxis ->listItems() ->add("Z", false);
 
-        mirrorPlanes->add(xy);
-        mirrorPlanes->add(xz);
-        sketchPlane = &yz;
+        // mirrorPlanes->add(xy);
+        // mirrorPlanes->add(xz);
+        // sketchPlane = &yz;
 
-        _errMessage = inputs->addTextBoxCommandInput("errMessage", "", "", 2, true);
+        axisOrPlaneSelection = inputs->addSelectionInput("selectionInput", "Mirror Plane or Axis", "Select plane, axis, face, edge, or sketch line");
+        
+        // Add multiple selection filters
+        axisOrPlaneSelection->addSelectionFilter("ConstructionPlanes");
+        axisOrPlaneSelection->addSelectionFilter("ConstructionLines");
+        axisOrPlaneSelection->addSelectionFilter("PlanarFaces");
+        axisOrPlaneSelection->addSelectionFilter("LinearEdges");
+        axisOrPlaneSelection->addSelectionFilter("SketchLines");
+        
+        // Optional: Set to allow only one selection
+        axisOrPlaneSelection->setSelectionLimits(2, 2);
+        
+        bodySelection = inputs->addSelectionInput("bodySelection", "Body", "Select a solid body");
+        bodySelection->addSelectionFilter("SolidBodies");
+        bodySelection->setSelectionLimits(1, 1);
+
+        _errMessage = inputs->addTextBoxCommandInput("errMessage", "", "", 3, true);
         _errMessage->isReadOnly(true);
 
         // Connect to the command related events.
         Ptr<InputChangedEvent> inputChangedEvent = cmd->inputChanged();
         if (!inputChangedEvent)
             return;
-        bool isOk = inputChangedEvent->add(&_cylinderCommandInputChanged);
+        bool isOk = inputChangedEvent->add(&_doubleMirrorCommandInputChanged);
         if (!isOk)
             return;
 
         Ptr<ValidateInputsEvent> validateInputsEvent = cmd->validateInputs();
         if (!validateInputsEvent)
             return;
-        isOk = validateInputsEvent->add(&_cylinderCommandValidateInputs);
+        isOk = validateInputsEvent->add(&_doubleMirrorCommandValidateInputs);
         if (!isOk)
             return;
 
         Ptr<CommandEvent> executeEvent = cmd->execute();
         if (!executeEvent)
             return;
-        isOk = executeEvent->add(&_cylinderCommandExecute);
+        isOk = executeEvent->add(&_doubleMirrorCommandExecute);
         if (!isOk)
             return;
 
@@ -195,12 +250,12 @@ public:
         if (!destroyEvent)
             return;
 
-        isOk = destroyEvent->add(&_cylinderCommandDestroy);
+        isOk = destroyEvent->add(&_doubleMirrorCommandDestroy);
         if (!isOk)
             return;
 
     }
-} _cylinderCommandCreated;
+} _doubleMirrorCommandCreated;
 
 extern "C" XI_EXPORT bool run(const char *context)
 {
@@ -209,7 +264,7 @@ extern "C" XI_EXPORT bool run(const char *context)
         return false;
 
     mirrorPlanes = ObjectCollection::create();
-    if (!bodies)
+    if (!mirrorPlanes)
         return false;
 
     app = Application::get();
@@ -263,7 +318,7 @@ extern "C" XI_EXPORT bool run(const char *context)
     if (!cmdDef)
     {
         cmdDef = ui->commandDefinitions()->addButtonDefinition(
-            idString, "Double-mirror cylinder", "Creates a cylinder from a sketch containing a quarter circle");
+            idString, "Double-mirror Command", "Turns a quarter-body into a full body, provided your intended full body is symmetrical about 2 axes");
         if (!checkReturn(cmdDef))
             return false;
     }
@@ -271,7 +326,7 @@ extern "C" XI_EXPORT bool run(const char *context)
     Ptr<CommandCreatedEvent> commandCreatedEvent = cmdDef->commandCreated();
     if (!checkReturn(commandCreatedEvent))
         return false;
-    bool isOk = commandCreatedEvent->add(&_cylinderCommandCreated);
+    bool isOk = commandCreatedEvent->add(&_doubleMirrorCommandCreated);
     if (!isOk)
         return false;
 
@@ -421,6 +476,7 @@ Ptr<MirrorFeature> doubleMirror(Ptr<ObjectCollection> bodies, Ptr<ConstructionPl
 
     // Update bodies collection to include the mirrored result
     bodies->clear();
+
     for (int i = 0; i < mirrorFeature->bodies()->count(); i++)
     {
         bodies->add(mirrorFeature->bodies()->item(i));
@@ -435,34 +491,308 @@ Ptr<MirrorFeature> doubleMirror(Ptr<ObjectCollection> bodies, Ptr<ConstructionPl
 
     // Create mirror feature
     Ptr<MirrorFeature> mirrorFeatureNew = rootComp->features()->mirrorFeatures()->add(mirrorInput);
-    if (!checkReturn(mirrorFeature))
+    if (!checkReturn(mirrorFeatureNew))
         return nullptr;
     return mirrorFeatureNew;
 }
 
 bool execute(Ptr<Component> rootComp) {
 
-    if (mirrorPlanes->count() != 2)
+    if (bodySelection->selectionCount() != 1) {
+        ui->messageBox("no body selected");
         return false;
+    }
 
-    // Create sketch
-    Ptr<Sketch> sketch = createSketch(rootComp);
-    if (!checkReturn(sketch))
-        return false;
+    Ptr<BRepBody> selectedBody = bodySelection->selection(0)->entity();
 
-    Ptr<ExtrudeFeature> extrusion = extrudeCreatedSketch(rootComp, sketch);
-    if (!extrusion)
-        return false;
-
-    // Select the newly extruded body for mirror operation
-    bodies->add(extrusion->bodies()->item(0));
+    // There is always one body selected at this point
+    bodies->add(selectedBody);
     if (!checkReturn(bodies))
         return false;
 
-    Ptr<ConstructionPlane>  plane1 = mirrorPlanes->item(0), 
-                            plane2 = mirrorPlanes->item(1);
+    // Ptr<ConstructionPlane>  plane1 = mirrorPlanes->item(0), 
+    //                         plane2 = mirrorPlanes->item(1);
+
+    Ptr<ConstructionPlane> plane1, plane2;
+
+    bool isOk = processPlaneOrLineInputs(plane1, plane2);
+    if (!isOk) {
+        ui->messageBox("Unable to process input axes/planes selection");
+        return false;
+    }
 
     Ptr<MirrorFeature> newMirrorFeature = doubleMirror(bodies, plane1, plane2);
 
+    if (!checkReturn(newMirrorFeature)) {
+        ui->messageBox("Double mirror failed");
+        return false;
+    }
+
     return true;
+}
+
+bool validateMirrorPlaneOrLineSelections() {
+    
+    if (axisOrPlaneSelection->selectionCount() != 2) return false;
+
+    auto entity1 = axisOrPlaneSelection->selection(0)->entity(), 
+         entity2 = axisOrPlaneSelection->selection(1)->entity();
+
+    if (entity1->objectType() != entity2->objectType())
+    {
+        _errMessage->text("Please select the same type for mirror guides (both planes or both lines)");
+        return false;
+    }
+
+    //check lines are orthogonal
+    Ptr<BRepEdge> edge1 = entity1;
+    Ptr<BRepEdge> edge2 = entity2;
+
+    if (checkReturn(edge1)&&checkReturn(edge2)) {
+        Ptr<Line3D> line1 = edge1->geometry();
+        Ptr<Line3D> line2 = edge2->geometry();
+        if (!checkReturn(line1) || !checkReturn(line2)) {
+            _errMessage->text("object is not a straight line");
+            return false;
+        }
+        else {
+            return areLinesOrthogonal(line1, line2);
+        }
+    }
+    
+    Ptr<ConstructionAxis> axis1 = entity1;
+    Ptr<ConstructionAxis> axis2 = entity2;
+
+    if (checkReturn(axis1)&&checkReturn(axis2)) {
+        Ptr<Vector3D> line1dir = axis1->geometry()->direction();
+        Ptr<Vector3D> line2dir = axis2->geometry()->direction();
+        if (!checkReturn(line1dir) || !checkReturn(line2dir)) {
+            _errMessage->text("Unable to resolve directions of construction axes");
+            return false;
+        }
+        else {
+            return areLinesOrthogonal(line1dir, line2dir);
+        }
+    }
+    
+    Ptr<SketchLine> sketchLine1 = entity1;
+    Ptr<SketchLine> sketchLine2 = entity2;
+    
+    if (checkReturn(sketchLine1)&&checkReturn(sketchLine2)) {
+        Ptr<Line3D> line1 = sketchLine1->geometry();
+        Ptr<Line3D> line2 = sketchLine2->geometry();
+        
+        if (!checkReturn(line1) || !checkReturn(line2)) {
+            _errMessage->text("object is not a sketch line");
+            return false;
+        }
+        
+        return areLinesOrthogonal(line1, line2);
+    }
+    
+    // Planar face is assumed
+    Ptr<BRepFace> face1 = entity1;
+    Ptr<BRepFace> face2 = entity2;
+
+    if (checkReturn(face1) && checkReturn(face2)) {
+        Ptr<Point3D> point1 = face1->pointOnFace();
+        Ptr<Point3D> point2 = face2->pointOnFace();
+
+        if (!checkReturn(point1)||!checkReturn(point2))
+        {
+            _errMessage->text("Unable to obtain point(s) on face(s)");
+            return false;
+        }
+
+        Ptr<Vector3D> normal1;
+        Ptr<Vector3D> normal2;
+
+        auto isOk = face1->geometry()->evaluator()->getNormalAtPoint(point1, normal1);
+        if (!isOk) {
+            _errMessage->text("Cannot obtain normal vector of face 1.");
+            return false;
+        }
+        isOk = face2->geometry()->evaluator()->getNormalAtPoint(point2, normal2);
+        if (!isOk) {
+            _errMessage->text("Cannot obtain normal vector of face 1.");
+            return false;
+        }
+
+        return areLinesOrthogonal(normal1, normal2);
+    }
+
+    Ptr<ConstructionPlane> cPlane1 = entity1;
+    Ptr<ConstructionPlane> cPlane2 = entity2;
+
+    if (checkReturn(cPlane1)&&checkReturn(cPlane2))
+    {
+        Ptr<Plane> plane1 = cPlane1->geometry();
+        Ptr<Plane> plane2 = cPlane2->geometry();
+        if (plane1->isPerpendicularToPlane(plane2)) {
+            return true;
+        } else {
+            _errMessage->text("Planes are not perpendicular");
+            return false;
+        }
+    }
+    {
+        _errMessage->text("Invalid object type (bad filter) for selections");
+        return false;
+    }
+}
+
+bool areLinesOrthogonal(Ptr<Line3D> line1,Ptr<Line3D> line2) {
+    
+    Ptr<Point3D> l1start, l1end, l2start, l2end;
+    line1->getData(l1start, l1end);
+    line2->getData(l2start, l2end);
+    
+    Ptr<Vector3D> vec1 = l1start->vectorTo(l1end), 
+                  vec2 = l2start->vectorTo(l2end);
+
+    return areLinesOrthogonal(vec1, vec2);
+}
+
+bool areLinesOrthogonal(Ptr<Vector3D> vec1,Ptr<Vector3D> vec2) {
+
+    bool result = (vec1->isPerpendicularTo(vec2));
+
+    if (!result) _errMessage->text("Lines are not orthogonal");
+
+    return result;
+}
+
+int findIndex() {
+    std::string selectedObjectType = axisOrPlaneSelection->selection(0)->entity()->objectType();
+    int i;
+
+    for (i=0; i<5; i++) {
+        if (selectedObjectType == selectionClassTypes[i])
+            return i;
+    }
+    return -1;
+}
+
+bool constructPlanesFromLines(Ptr<ConstructionPlanes> constructionPlanes, Ptr<Base> linearEntity1, Ptr<Base> linearEntity2, Ptr<ConstructionPlane> &plane1, Ptr<ConstructionPlane> &plane2) {
+
+    auto angle = ValueInput::createByReal(M_PI_2);
+    auto constructionPlaneInput = constructionPlanes->createInput();
+    
+    if (!checkReturn(angle) || !checkReturn(constructionPlaneInput))
+        return false;
+    
+    constructionPlaneInput->setByTwoEdges(linearEntity1, linearEntity2);
+    Ptr<ConstructionPlane> refPlane = constructionPlanes->add(constructionPlaneInput);
+            
+    if (!checkReturn(refPlane)) {
+        return false;
+    }
+
+    constructionPlaneInput->setByAngle(linearEntity1,angle,refPlane);
+    plane1 = constructionPlanes->add(constructionPlaneInput);
+
+    constructionPlaneInput->setByAngle(linearEntity2,angle,refPlane);
+    plane2 = constructionPlanes->add(constructionPlaneInput);
+
+    if (!checkReturn(plane1) || !checkReturn(plane2)) {
+        ui->messageBox("Unable to construct planes from lines");
+        return false;
+    }
+
+    return true;
+}
+
+bool processPlaneOrLineInputs(Ptr<ConstructionPlane> &plane1, Ptr<ConstructionPlane> &plane2) {
+
+    Ptr<Base> entity1 = axisOrPlaneSelection->selection(0)->entity();
+    Ptr<Base> entity2 = axisOrPlaneSelection->selection(1)->entity();
+   
+    Ptr<BRepBody> selectedBody = bodySelection->selection(0)->entity();
+    if (!checkReturn(selectedBody))
+        return false;
+
+    Ptr<ConstructionPlanes> cPlanes = selectedBody->parentComponent()->constructionPlanes();
+
+    auto offset = ValueInput::createByReal(0);
+
+    Ptr<Component> parentComp = selectedBody->parentComponent();
+    if (!parentComp) {
+        // Body is in root component
+        parentComp = rootComp;
+    }
+    std::string selectedObjectType = entity1->objectType();
+    
+    if (selectedObjectType != entity2->objectType()) {
+        ui->messageBox("Selections are not of the same type");
+        return false;
+    }
+    
+    int index = findIndex();
+
+    switch (index) {
+        case 0: 
+        {
+            Ptr<BRepEdge> edge1 = entity1,
+                                  edge2 = entity2;
+                                  
+            bool isOk = constructPlanesFromLines(cPlanes, edge1, edge2, plane1, plane2);
+
+            if (!isOk || !checkReturn(plane1) || !checkReturn(plane2)) return false;
+            else return true;
+            // break;
+        }
+        case 1:
+        {    
+            Ptr<ConstructionAxis> axis1 = entity1,
+                                  axis2 = entity2;
+
+            bool isOk = constructPlanesFromLines(cPlanes, axis1, axis2, plane1, plane2);
+
+            if (!isOk || !checkReturn(plane1) || !checkReturn(plane2)) return false;
+            else return true;
+            // break;
+        }
+        case 2: 
+        {    
+            Ptr<SketchLine> line1 = entity1, 
+                            line2 = entity2;
+
+            bool isOk = constructPlanesFromLines(cPlanes, line1, line2, plane1, plane2);
+
+            if (!isOk || !checkReturn(plane1) || !checkReturn(plane2)) return false;
+            else return true;
+            // break;
+        }
+        case 3: 
+        {
+            Ptr<BRepFace> face1 = entity1, 
+                          face2 = entity2;
+
+            auto constructionPlaneInput = cPlanes->createInput();
+
+            // Ptr<Point3D> centroid1 = face1->centroid();
+            constructionPlaneInput->setByOffset(face1, offset);
+            plane1 = cPlanes->add(constructionPlaneInput);
+            
+            constructionPlaneInput->setByOffset(face2, offset);
+            plane2 = cPlanes->add(constructionPlaneInput);
+            if (!checkReturn(plane1) || !checkReturn(plane2)) return false;
+
+            return true;
+        }
+        
+        case 4: 
+        {
+            Ptr<ConstructionPlane> cplane1 = entity1, 
+                                   cplane2 = entity2;
+
+            plane1 = cplane1;
+            plane2 = cplane2;
+
+            return true;
+            // break;
+        }
+    }
+
+    return false;
 }
