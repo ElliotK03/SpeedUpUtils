@@ -75,6 +75,12 @@ jobs:
             throw "Fusion C++ SDK lib path not found: $libDir"
           }
 
+          # Some public sources currently ship only macOS dylibs. Windows builds require .lib files.
+          $windowsLibCount = @(Get-ChildItem -Path $libDir -Filter "*.lib" -File -ErrorAction SilentlyContinue).Count
+          if ($windowsLibCount -eq 0) {
+            throw "No Windows .lib files found under '$libDir'. Provide a Windows Fusion C++ SDK ZIP via repository secret FUSION_CPP_SDK_ZIP_URL (must include include/ and lib/ with core.lib, fusion.lib, cam.lib)."
+          }
+
           $requiredLibs = @("core.lib", "fusion.lib", "cam.lib")
           foreach ($lib in $requiredLibs) {
             $libPath = Join-Path $libDir $lib
