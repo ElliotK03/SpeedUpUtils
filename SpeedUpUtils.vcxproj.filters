@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="C:\Users\MSI-pc\AppData\Roaming\Autodesk\Autodesk Fusion 360\API\Scripts\SpeedUpUtils\SpeedUpUtils.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\MSI-pc\AppData\Roaming\Autodesk\Autodesk Fusion 360\API\Scripts\SpeedUpUtils\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{8BF55207-9E19-34BA-BA8D-B45699FB8D79}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

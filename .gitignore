@@ -1,2 +1,38 @@
-*
-!.gitignore
+# Visual Studio and build artifacts
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+*.obj
+*.iobj
+*.pch
+*.pdb
+*.ipdb
+*.ilk
+*.exp
+*.lib
+*.dll
+*.dylib
+*.recipe
+*.tlog
+*.lastbuildstate
+*.VC.db
+*.opendb
+
+# MSBuild intermediate outputs
+*.log
+*.tmp
+
+# Per-user Visual Studio files
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.vcxproj.user
+
+# VS Code local machine settings
+.vscode/c_cpp_properties.json
+.vscode/settings.json
+
+# Helix editor state
+.helix/

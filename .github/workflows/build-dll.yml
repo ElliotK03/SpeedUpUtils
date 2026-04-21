@@ -1,0 +1,123 @@
+name: Build SpeedUpUtils DLL
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      CONFIGURATION: Release
+      PLATFORM: x64
+      APPDATA: ${{ github.workspace }}\_appdata
+      FUSION_API_REPO: AutodeskFusion360/FusionAPIReference
+      FUSION_API_REF: 6f5edc3905ac6bbd2b759f5ce5fab32d67f6aebe
+      FUSION_API_SUBDIR: Fusion_API_CPP_Reference
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Prepare Fusion API SDK directories
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:APPDATA\Autodesk\Autodesk Fusion 360\API\CPP" | Out-Null
+
+      - name: Download Fusion C++ SDK
+        if: ${{ secrets.FUSION_CPP_SDK_ZIP_URL != '' }}
+        shell: pwsh
+        run: |
+          $zipPath = Join-Path $env:RUNNER_TEMP "fusion-cpp-sdk.zip"
+          Invoke-WebRequest -Uri "${{ secrets.FUSION_CPP_SDK_ZIP_URL }}" -OutFile $zipPath
+          Expand-Archive -Path $zipPath -DestinationPath "$env:APPDATA\Autodesk\Autodesk Fusion 360\API\CPP" -Force
+
+      - name: Download Fusion C++ SDK from Autodesk FusionAPIReference
+        if: ${{ secrets.FUSION_CPP_SDK_ZIP_URL == '' }}
+        shell: pwsh
+        run: |
+          $zipPath = Join-Path $env:RUNNER_TEMP "fusion-api-reference.zip"
+          $extractRoot = Join-Path $env:RUNNER_TEMP "fusion-api-reference"
+          $zipUrl = "https://codeload.github.com/$env:FUSION_API_REPO/zip/$env:FUSION_API_REF"
+
+          Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath
+          Expand-Archive -Path $zipPath -DestinationPath $extractRoot -Force
+
+          $repoRoot = Get-ChildItem -Path $extractRoot -Directory | Select-Object -First 1
+          if (-not $repoRoot) {
+            throw "Unable to find extracted FusionAPIReference root folder."
+          }
+
+          $cppRefDir = Join-Path $repoRoot.FullName $env:FUSION_API_SUBDIR
+          if (-not (Test-Path $cppRefDir)) {
+            throw "Fusion C++ reference folder not found: $cppRefDir"
+          }
+
+          Copy-Item -Path "$cppRefDir\*" -Destination "$env:APPDATA\Autodesk\Autodesk Fusion 360\API\CPP" -Recurse -Force
+
+      - name: Validate Fusion C++ SDK
+        shell: pwsh
+        run: |
+          $includeDir = "$env:APPDATA\Autodesk\Autodesk Fusion 360\API\CPP\include"
+          $libDir = "$env:APPDATA\Autodesk\Autodesk Fusion 360\API\CPP\lib"
+
+          if (-not (Test-Path $includeDir)) {
+            throw "Fusion C++ SDK include path not found: $includeDir"
+          }
+
+          if (-not (Test-Path $libDir)) {
+            throw "Fusion C++ SDK lib path not found: $libDir"
+          }
+
+          $requiredLibs = @("core.lib", "fusion.lib", "cam.lib")
+          foreach ($lib in $requiredLibs) {
+            $libPath = Join-Path $libDir $lib
+            if (-not (Test-Path $libPath)) {
+              throw "Required Fusion C++ SDK library not found: $libPath"
+            }
+          }
+
+      - name: Build DLL
+        shell: cmd
+        run: msbuild SpeedUpUtils.vcxproj /m /p:Configuration=%CONFIGURATION% /p:Platform=%PLATFORM%
+
+      - name: Verify DLL output
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "Release\SpeedUpUtils.dll") -and -not (Test-Path "SpeedUpUtils.dll")) {
+            throw "Build completed but SpeedUpUtils.dll was not found in expected locations."
+          }
+
+      - name: Prepare artifact and SHA256
+        shell: pwsh
+        run: |
+          $artifactDir = "artifact"
+          New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
+
+          $dllPath = if (Test-Path "SpeedUpUtils.dll") {
+            "SpeedUpUtils.dll"
+          } elseif (Test-Path "Release\SpeedUpUtils.dll") {
+            "Release\SpeedUpUtils.dll"
+          } else {
+            throw "Build completed but SpeedUpUtils.dll was not found in expected locations."
+          }
+
+          $artifactDll = Join-Path $artifactDir "SpeedUpUtils.dll"
+          Copy-Item -Path $dllPath -Destination $artifactDll -Force
+
+          $sha256 = (Get-FileHash -Path $artifactDll -Algorithm SHA256).Hash.ToLower()
+          "$sha256 *SpeedUpUtils.dll" | Set-Content -Path (Join-Path $artifactDir "SpeedUpUtils.dll.sha256")
+
+      - name: Upload DLL artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpeedUpUtils-dll
+          path: |
+            artifact/SpeedUpUtils.dll
+            artifact/SpeedUpUtils.dll.sha256
+          if-no-files-found: error

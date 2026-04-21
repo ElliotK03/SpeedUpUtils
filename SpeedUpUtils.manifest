@@ -1,0 +1,15 @@
+{
+	"autodeskProduct":	"Fusion",
+	"type":	"addin",
+	"author":	"ElliotK03",
+	"description":	{
+		"":	"Some tools and utils to speed up modelling"
+	},
+	"supportedOS":	"windows|mac",
+	"version":	"",
+	"editEnabled":	true,
+	"iconFilename":	"AddInIcon.svg",
+	"runOnStartup":	false,
+	"sourcewindows":	"SpeedUpUtils.vcxproj",
+	"sourcemac":	"SpeedUpUtils.xcodeproj"
+}
