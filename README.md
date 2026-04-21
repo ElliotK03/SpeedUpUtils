@@ -6,6 +6,10 @@ The broader vision is to build a set of utility tools for Autodesk Fusion that h
 
 Right now, the add-in includes one command: Double Mirror, which is the default command when the add-in launches.
 
+## Demo
+
+![alt text](https://s13.gifyu.com/images/bqZYY.gif)
+
 ## How it works
 
 The tool supports 5 entity types as input to compute/use as your mirror plane: Sketch Lines, Construction Axes, BRepEdges, BRepFaces and Construction Planes.
@@ -125,6 +129,8 @@ The build process documented below is for Windows only. I don't know how to buil
     - No button mapped to the Command Ribbon of Fusion UI.
 
     - No preview before confirmation.
+
+    - No grouped timeline items.
 
 ## GitHub Actions: Build DLL on Push
 
