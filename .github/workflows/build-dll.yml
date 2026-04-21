@@ -16,6 +16,7 @@ jobs:
       FUSION_API_REPO: AutodeskFusion360/FusionAPIReference
       FUSION_API_REF: 6f5edc3905ac6bbd2b759f5ce5fab32d67f6aebe
       FUSION_API_SUBDIR: Fusion_API_CPP_Reference
+      FUSION_CPP_SDK_ZIP_URL: ${{ secrets.FUSION_CPP_SDK_ZIP_URL }}
 
     steps:
       - name: Checkout
@@ -30,15 +31,15 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$env:APPDATA\Autodesk\Autodesk Fusion 360\API\CPP" | Out-Null
 
       - name: Download Fusion C++ SDK
-        if: ${{ secrets.FUSION_CPP_SDK_ZIP_URL != '' }}
+        if: ${{ env.FUSION_CPP_SDK_ZIP_URL != '' }}
         shell: pwsh
         run: |
           $zipPath = Join-Path $env:RUNNER_TEMP "fusion-cpp-sdk.zip"
-          Invoke-WebRequest -Uri "${{ secrets.FUSION_CPP_SDK_ZIP_URL }}" -OutFile $zipPath
+          Invoke-WebRequest -Uri "$env:FUSION_CPP_SDK_ZIP_URL" -OutFile $zipPath
           Expand-Archive -Path $zipPath -DestinationPath "$env:APPDATA\Autodesk\Autodesk Fusion 360\API\CPP" -Force
 
       - name: Download Fusion C++ SDK from Autodesk FusionAPIReference
-        if: ${{ secrets.FUSION_CPP_SDK_ZIP_URL == '' }}
+        if: ${{ env.FUSION_CPP_SDK_ZIP_URL == '' }}
         shell: pwsh
         run: |
           $zipPath = Join-Path $env:RUNNER_TEMP "fusion-api-reference.zip"
